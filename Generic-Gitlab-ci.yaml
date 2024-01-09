@@ -1,0 +1,76 @@
+stages:
+  - QA
+  - buildImage
+  - deployImage
+
+buildImage:
+  stage: buildImage
+  before_script:
+    - docker login -u ${REGISTRY_USER} -p ${REGISTRY_PASSWORD} ${REGISTRY}
+  script:
+    - docker build -t ${REGISTRY}/${CI_PROJECT_PATH}:${CI_COMMIT_BRANCH} .
+    - docker push ${REGISTRY}/${CI_PROJECT_PATH}:${CI_COMMIT_BRANCH}
+  only:
+    - tawqe3y-development
+    - tawqe3y-testing
+    - tawqe3y-staging
+    - nefertiti-development
+    - nefertiti-testing
+    - nefertiti-staging
+
+
+deployNefStaging:
+  stage: deployImage
+  beforer_script:
+    - echo ${NEF_STAGING_DOCKER_REGISTRY_PASSWORD} | docker login -u ${NEF_STAGING_DOCKER_REGISTRY_USER} ${NEF_STAGING_REGISTRY_URL} --password-stdin
+  script:
+    - docker tag ${REGISTRY}/${CI_PROJECT_PATH}:${CI_COMMIT_BRANCH} ${NEF_STAGING_DOCKER_REGISTRY_USER}/${IMAGE_NAME}:${CI_COMMIT_BRANCH}
+    - docker push ${NEF_STAGING_DOCKER_REGISTRY_USER}/${IMAGE_NAME}:${CI_COMMIT_BRANCH}
+    - kubectl annotate deployment/${DEPLOYMENT_NAME} restarted-at="$(date)" --overwrite
+  only:
+    - nefertiti-staging
+
+deployNefStagingFailover:
+  stage: deployImage
+  beforer_script: 
+    - echo ${NEF_STAGING_FAILOVER_KEY} > ~/${NEF_STAGING_FAILOVER_KEY}
+    - chmod a+x ~/${NEF_STAGING_FAILOVER_KEY}
+  script:
+    - ssh -i ~/${NEF_STAGING_FAILOVER_KEY} ${NEF_STAGING_FAILOVER_IP} "cd /home/master/${CI_COMMIT_BRANCH}/ && docker-compose pull && docker-compose up -d" 
+  only:
+    - nefertiti-staging
+
+
+
+
+    
+# deployImageDockerCompose:
+#   stage: deployImage
+#   before_script:
+#     - echo ${CI_COMMIT_BRANCH}-${SSH_KEY} > ~/${CI_COMMIT_BRANCH}-${SSH_KEY}
+#   script:
+#     - ssh -i ~/${CI_COMMIT_BRANCH}-${SSH_KEY} ${CI_COMMIT_BRANCH}-DOCKER-IP "cd /home/master/${CI_COMMIT_BRANCH}/ && docker-compose pull && docker-compose up -d"
+#   only:
+#     - nefertiti-development
+#     - nefertiti-staging
+#     - tawqe3y-development
+
+# deployNefK8SImage:
+#   stage: deployImage
+#   before_script:
+#     - echo ${CI_COMMIT_BRANCH}-${SSH_KEY} > ~/${CI_COMMIT_BRANCH}-${SSH_KEY}
+#   script:
+#     - ssh -i ~/${CI_COMMIT_BRANCH}-${SSH_KEY} NEF-${CI_COMMIT_BRANCH}-UTILITY_IP "kubectl set image deploy/$DEPLOY_NAME $CONTAINER_NAME=${CI_REGISTRY}/${CI_PROJECT_PATH}:${CI_COMMIT_BRANCH}-${CI_COMMIT_SHORT_SHA}"
+#   only:
+#     - nefertiti-staging
+
+# deployTawqe3yK8SImage:
+#   stage: deployImage
+#   before_script:
+#     - echo ${CI_COMMIT_BRANCH}-${SSH_KEY} > ~/${CI_COMMIT_BRANCH}-${SSH_KEY}
+#     - chmod 0400 ~/${CI_COMMIT_BRANCH}-${SSH_KEY}
+#   script:
+#     - ssh -i ~/${CI_COMMIT_BRANCH}-${SSH_KEY} tawqe3y-${CI_COMMIT_BRANCH}-UTILITY_IP "kubectl set image deploy/$DEPLOY_NAME $CONTAINER_NAME=${CI_REGISTRY}/${CI_PROJECT_PATH}:${CI_COMMIT_BRANCH}-${CI_COMMIT_SHORT_SHA}"
+#   only:
+#     - tawqe3y-testing
+#     - tawqe3y-staging
